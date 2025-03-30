@@ -48,14 +48,18 @@ class Company:
         self.name = name
         self.category = category
         self.price = price
-        self.previous_price = price  # Store the previous price for price change calculations
+        self.previous_price = price
         self.scenarios_owned = scenarios_owned
         self.scenarios_not_owned = scenarios_not_owned
-        
         self.owned_stocks = 0
+        self.fluctuated = False  # Track if price fluctuated due to scenario
+
 
     def update_price(self):
         """Simulate stock price fluctuation based on category."""
+        if self.fluctuated:  # Skip price fluctuation if scenario already occurred
+            return
+
         self.previous_price = self.price
         if self.category == "emerging":
             change = random.uniform(-0.2, 0.5)
@@ -65,6 +69,7 @@ class Company:
             change = random.uniform(-0.1, 0.1)
         self.price += self.price * change
         self.price = max(round(self.price, 2), 1)
+
 
     def choose_scenario(self, owned):
         """Choose a scenario for the company and apply the effect."""
@@ -77,23 +82,26 @@ class Company:
             increase_percentage = random.uniform(0.1, 0.3)  # 10% to 30% increase
             self.price += self.price * increase_percentage
             self.price = round(self.price, 2)
-            effect = f"Scenario: {scenario} - Stock price increased by {round(increase_percentage * 100, 1)}%"
-            additional_increase = random.uniform(0.1,0.3)
+            effect = f"{scenario} -> Stock price increased by {round(increase_percentage * 100, 1)}%"
+            additional_increase = random.uniform(0.1, 0.3)
             self.price += self.price * additional_increase
             self.price = round(self.price, 2)
             additional_effect = f" Additional increase: {round(additional_increase * 100, 1)}%"
+            self.fluctuated = True  # Mark the price as fluctuated
             return effect, additional_effect, color
         elif scenarios.index(scenario) == 1:  # Negative impact
             decrease_percentage = random.uniform(0.1, 0.3)  # 10% to 30% decrease
             self.price -= self.price * decrease_percentage
             self.price = max(round(self.price, 2), 1)
-            effect = f"Scenario: {scenario} - Stock price decreased by {round(decrease_percentage * 100, 1)}%"
-            additional_decrease = random.uniform(0.1,0.3)
+            effect = f"{scenario} -> Stock price decreased by {round(decrease_percentage * 100, 1)}%"
+            additional_decrease = random.uniform(0.1, 0.3)
             self.price -= self.price * additional_decrease
             self.price = max(round(self.price, 2), 1)
             additional_effect = f" Additional decrease: {round(additional_decrease * 100, 1)}%"
+            self.fluctuated = True  # Mark the price as fluctuated
             return effect, additional_effect, color
-        return f"Scenario: No significant price change.", "", BLACK
+        return "", "", BLACK
+
 
 class Portfolio:
     def __init__(self, initial_balance):
@@ -158,15 +166,13 @@ def main():
         Company("Planetdollars", "large", 100.00, ["New lineup of drinks popular", "Boycott due to human rights concerns"], "Food & Beverage"),
         Company("RiseX", "emerging", 50.00, ["Venture capital funding", "Product failure"], "Startups"),
         Company("GreenTech", "emerging", 75.00, ["Environmental grant", "Technology setback"], "Renewable Energy"),
-        Company("FossilCorp", "fading", 50.00, ["Cost-cutting measures", "Loss of major client"], "Energy"),
+        Company("FossilCorp", "fading", 50.00, ["Cost-cutting efficiency", "Loss of major client"], "Energy"),
         Company("RetailCo", "small", 100.00, ["Local expansion", "Supply chain issues"], "Retail"),
         Company("BioFuture", "emerging", 300.00, ["Breakthrough drug", "Clinical trial failure"], "Biotechnology"),
         Company("TechGiant", "large", 1200.00, ["New AI product", "Data breach"], "Technology"),
         Company("LegacyInd", "fading", 30.00, ["Asset liquidation", "Bankruptcy rumors"], "Manufacturing"),
     ]
-    scenario_text = ""
-    additional_scenario_text = ""
-    scenario_colors = []
+    scenario_details = []  # Store scenario details
 
     # Buttons
     buy_page_button = Button(WIDTH // 2 - 75, HEIGHT // 2 - 50, 150, 50, "Buy Stocks", GREEN, WHITE, action="buy_page")
@@ -222,18 +228,15 @@ def main():
             back_button.draw(screen)
 
         elif state == SCENARIO_PAGE:
-            if year == 10:
+            if year != 10:
                 if back_button.is_clicked(event):
                     state = MAIN_MENU
                     year += 1
-                    years_passed +=1
                     for company in companies:
                         company.update_price()
             else:
                 if back_button.is_clicked(event):
                     state = MAIN_MENU
-                    for company in companies:
-                        company.update_price()
                     # Calculate the portfolio value and display the profit or loss
                     final_value = portfolio.calculate_portfolio_value(companies)
                     profit_loss = final_value - 10000
@@ -243,15 +246,18 @@ def main():
                     pygame.display.flip()
                     pygame.time.wait(3000)  # Wait for 3 seconds before going back to the main menu
                     pygame.quit()
-            
+
             draw_text(screen, f"Year: {year}", 10, 10, BLACK)
             draw_text(screen, f"Balance: ${portfolio.balance:.2f}", 10, 50, BLACK)
+
             y_offset = 100
-            for i in range(len(scenario_text.split('\n')) -1):
-                draw_text(screen, scenario_text.split('\n')[i], 10, y_offset, scenario_colors[i])
-                y_offset += 30
-            y_offset = 100
-            
+            for company_name, scenario, additional_effect, color in scenario_details:
+                draw_text(screen, scenario, 10, y_offset, color)
+                y_offset += 30  # Adjust the vertical offset for the next line
+                if additional_effect:
+                    draw_text(screen, additional_effect, 10, y_offset, color)
+                    y_offset += 30  # Adjust the vertical offset for the next line
+
             back_button.draw(screen)
 
         for event in pygame.event.get():
@@ -265,45 +271,59 @@ def main():
                     state = SELL_PAGE
                 elif next_year_button.is_clicked(event):
                     state = SCENARIO_PAGE
-                    scenario_text = ""
-                    additional_scenario_text = ""
-                    scenario_colors = []
+                    scenario_details = []  # Reset scenario details
+
+                    # Clear previous fluctuations before the new year
+                    for company in companies:
+                        company.fluctuated = False  # Reset fluctuated flag for the new year
+
+                    # Check if all companies are owned or not
                     all_owned = True
                     for company in companies:
-                        if company.name not in portfolio.stocks:
+                        if company.owned_stocks == 0:
                             all_owned = False
                             break
-                    for company in companies:
-                        owned = company.name in portfolio.stocks
-                        scenario, additional_effect, color = company.choose_scenario(owned if not all_owned else True)
-                        scenario_text += f"{company.name}: {scenario}\n"
-                        additional_scenario_text += f"{company.name}: {additional_effect}\n"
-                        scenario_colors.append(color)
+
+                    if all_owned:
+                        for company in companies:
+                            # All companies are owned, apply random scenarios
+                            for owned in [True, False]:
+                                effect, additional_effect, color = company.choose_scenario(owned)
+                                scenario_details.append((company.name, effect, additional_effect, color))
+                    else:
+                        for company in companies:
+                            effect, additional_effect, color = company.choose_scenario(True)
+                            scenario_details.append((company.name, effect, additional_effect, color))
 
             elif state == BUY_PAGE:
-                for i, button in enumerate(buy_buttons):
-                    if button.is_clicked(event):
-                        message = portfolio.buy(companies[i], 1)
-                        print(message)  # Debugging output
+                for i, company in enumerate(companies):
+                    if buy_buttons[i].is_clicked(event):
+                        message = portfolio.buy(company, 1)  # Buy 1 share
+                        print(message)
+
                 if back_button.is_clicked(event):
                     state = MAIN_MENU
+
             elif state == SELL_PAGE:
-                for i, button in enumerate(sell_buttons):
-                    if button.is_clicked(event):
-                        if companies[i].name in portfolio.stocks and portfolio.stocks[companies[i].name]['quantity'] > 0:
-                            message = portfolio.sell(companies[i], 1)
-                        else:
-                            message = f"You don't own any shares of {companies[i].name}."
-                        print(message)  # Debugging output
+                for i, company in enumerate(companies):
+                    if sell_buttons[i].is_clicked(event):
+                        message = portfolio.sell(company, 1)  # Sell 1 share
+                        print(message)
+
                 if back_button.is_clicked(event):
                     state = MAIN_MENU
 
             elif state == SCENARIO_PAGE:
-                if back_button.is_clicked(event):
+                if year == 10 and back_button.is_clicked(event):
                     state = MAIN_MENU
-                    year += 1
-                    for company in companies:
-                        company.update_price()
+                    final_value = portfolio.calculate_portfolio_value(companies)
+                    profit_loss = final_value - 10000
+                    profit_loss_text = f"Final Profit/Loss: ${profit_loss:.2f}"
+                    profit_loss_color = GREEN if profit_loss > 0 else RED
+                    draw_text(screen, profit_loss_text, WIDTH // 2 - 150, HEIGHT // 2, profit_loss_color)
+                    pygame.display.flip()
+                    pygame.time.wait(3000)  # Wait for 3 seconds before going back to the main menu
+                    pygame.quit()
 
         pygame.display.flip()
 
